@@ -101,12 +101,14 @@ namespace Client
 
                 var sb = new StringBuilder();
                 sb.AppendLine("========== Modbus Typed Data Map ==========");
+                sb.AppendLine("Владелец данных: [CLIENT]=адреса 0-4 (Coils), 0-9 (Regs) | [SERVER]=адреса 5-9 (Coils), 10-19 (Regs)");
 
                 // ===== Выводим Coils =====
                 sb.AppendLine("Coils (Булевы переменные):");
                 for (int i = 0; i < coils.Length; i++)
                 {
-                    sb.AppendFormat(" bCoil_{0:00}: {1}", i, coils[i] ? "ON " : "OFF");
+                    string owner = i < ModbusClientDataReader.ClientCoilsCount ? "[CLIENT]" : "[SERVER]";
+                    sb.AppendFormat(" {0} bCoil_{1:00}: {2}", owner, i, coils[i] ? "ON " : "OFF");
                     if ((i + 1) % 3 == 0) sb.AppendLine();
                 }
                 sb.AppendLine();
@@ -120,32 +122,32 @@ namespace Client
                 try
                 {
                     // INT [0-1]
-                    sb.AppendFormat(" INT[0]:  {0,10}\n", decoder.DecodeInt(0));
-                    sb.AppendFormat(" INT[1]:  {0,10}\n", decoder.DecodeInt(1));
+                    sb.AppendFormat(" [CLIENT] INT[0]:  {0,10}\n", decoder.DecodeInt(0));
+                    sb.AppendFormat(" [CLIENT] INT[1]:  {0,10}\n", decoder.DecodeInt(1));
                     sb.AppendLine();
 
                     // REAL [2-3]
-                    sb.AppendFormat(" REAL[2-3]:  {0,10:F2}\n", decoder.DecodeReal(2));
+                    sb.AppendFormat(" [CLIENT] REAL[2-3]:  {0,10:F2}\n", decoder.DecodeReal(2));
                     sb.AppendLine();
 
                     // STRING [4-6]
-                    sb.AppendFormat(" STRING[4-6]:  \"{0}\"\n", decoder.DecodeString(4, 3));
+                    sb.AppendFormat(" [MIXED]  STRING[4-6]:  \"{0}\"\n", decoder.DecodeString(4, 3));
                     sb.AppendLine();
 
                     // DATE [10-11]
                     DateTime date = decoder.DecodeDate(10);
-                    sb.AppendFormat(" DATE[10-11]:  {0:yyyy-MM-dd HH:mm:ss}\n", date);
+                    sb.AppendFormat(" [SERVER] DATE[10-11]:  {0:yyyy-MM-dd HH:mm:ss}\n", date);
                     sb.AppendLine();
 
                     // DWORD [12-13]
-                    sb.AppendFormat(" DWORD[12-13]:  {0,10}\n", decoder.DecodeDword(12));
+                    sb.AppendFormat(" [SERVER] DWORD[12-13]:  {0,10}\n", decoder.DecodeDword(12));
                     sb.AppendLine();
 
                     // Дополнительные INT значения [14-19]
-                    sb.AppendLine(" INT[14-19] (дополнительные):");
+                    sb.AppendLine(" [SERVER] INT[14-19] (дополнительные):");
                     for (int i = 14; i < 20 && i < registers.Length; i++)
                     {
-                        sb.AppendFormat("  INT[{0:00}]: {1,10}\n", i, decoder.DecodeInt(i));
+                        sb.AppendFormat("  [SERVER] INT[{0:00}]: {1,10}\n", i, decoder.DecodeInt(i));
                     }
                 }
                 catch (Exception ex)
@@ -208,4 +210,3 @@ namespace Client
         }
     }
 }
-

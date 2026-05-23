@@ -23,6 +23,12 @@ namespace Client
 
         // Параметры подключения
         private readonly int _slaveAddress;
+        private readonly Random _random = new Random();
+
+        public const int TotalCoils = 10;
+        public const int TotalRegisters = 20;
+        public const int ClientCoilsCount = TotalCoils / 2;
+        public const int ClientRegistersCount = TotalRegisters / 2;
 
         /// <summary>
         /// Конструктор ModbusClientDataReader.
@@ -53,7 +59,7 @@ namespace Client
                 bool[] coils = await _master.ReadCoilsAsync(
                     slaveAddress: (byte)_slaveAddress,
                     startAddress: 0,
-                    numberOfPoints: 10
+                    numberOfPoints: TotalCoils
                 );
 
                 return coils;
@@ -86,7 +92,7 @@ namespace Client
                 ushort[] registers = await _master.ReadHoldingRegistersAsync(
                     slaveAddress: (byte)_slaveAddress,
                     startAddress: 0,
-                    numberOfPoints: 20
+                    numberOfPoints: TotalRegisters
                 );
 
                 return registers;
@@ -127,6 +133,36 @@ namespace Client
             catch (Exception ex)
             {
                 throw new ModbusReadException($"Неожиданная ошибка при чтении данных: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Клиент обновляет только свою половину данных:
+        /// Coils[0..4] и HoldingRegisters[0..9].
+        /// </summary>
+        public async Task WriteClientHalfAsync()
+        {
+            try
+            {
+                bool[] clientCoils = new bool[ClientCoilsCount];
+                ushort[] clientRegisters = new ushort[ClientRegistersCount];
+
+                for (int i = 0; i < ClientCoilsCount; i++)
+                {
+                    clientCoils[i] = _random.Next(0, 2) == 1;
+                }
+
+                for (int i = 0; i < ClientRegistersCount; i++)
+                {
+                    clientRegisters[i] = (ushort)_random.Next(0, 5000);
+                }
+
+                await _master.WriteMultipleCoilsAsync((byte)_slaveAddress, 0, clientCoils);
+                await _master.WriteMultipleRegistersAsync((byte)_slaveAddress, 0, clientRegisters);
+            }
+            catch (Exception ex)
+            {
+                throw new ModbusReadException($"Ошибка при записи клиентской половины данных: {ex.Message}", ex);
             }
         }
     }

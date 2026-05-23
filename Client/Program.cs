@@ -56,6 +56,9 @@ namespace Client
                 {
                     try
                     {
+                        // Клиент изменяет только свою половину Coils/Registers.
+                        await dataReader.WriteClientHalfAsync();
+
                         // Читаем все данные (Coils и Registers) с сервера одновременно
                         var (coils, registers) = await dataReader.ReadAllDataAsync();
 
