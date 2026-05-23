@@ -17,6 +17,10 @@ namespace Server
     /// </summary>
     internal class ModbusServerDataManager
     {
+        private const int TotalCoils = 10;
+        private const int TotalRegisters = 20;
+        private const int ServerCoilsStart = TotalCoils / 2; // 5..9
+        private const int ServerRegistersStart = TotalRegisters / 2; // 10..19
         // Ссылка на сервер Modbus для доступа к DataStore
         private readonly ModbusServer _server;
 
@@ -77,19 +81,21 @@ namespace Server
         /// </summary>
         public void SimulateCoilsCycle()
         {
+            int serverCoilsCount = TotalCoils - ServerCoilsStart;
+
             // Если находимся в фазе включения (фаза 0)
             if (_cyclePhase == 0)
             {
                 // Включаем Coil с индексом _coilCycleIndex
                 // Используем +1 для 1-based индексирования DataStore
-                _server.DataStore.CoilDiscretes[_coilCycleIndex + 1] = true;
+                _server.DataStore.CoilDiscretes[ServerCoilsStart + _coilCycleIndex + 1] = true;
 
                 _coilCycleIndex++;
 
                 // Если прошли все 10 Coils (0..9), переходим на фазу выключения
-                if (_coilCycleIndex >= 10)
+                if (_coilCycleIndex >= serverCoilsCount)
                 {
-                    _coilCycleIndex = 9; // Начинаем выключение с конца (индекс 9)
+                    _coilCycleIndex = serverCoilsCount - 1; // Начинаем выключение с конца серверной половины
                     _cyclePhase = 1;     // Переходим в фазу выключения
                 }
             }
@@ -98,7 +104,7 @@ namespace Server
             {
                 // Выключаем Coil с индексом _coilCycleIndex
                 // Используем +1 для 1-based индексирования DataStore
-                _server.DataStore.CoilDiscretes[_coilCycleIndex + 1] = false;
+                _server.DataStore.CoilDiscretes[ServerCoilsStart + _coilCycleIndex + 1] = false;
 
                 _coilCycleIndex--;
 
@@ -129,36 +135,7 @@ namespace Server
             // ВАЖНО: DataStore в ModbusRx использует 1-based индексирование (индекс 0 зарезервирован).
             // Для адреса Modbus 0, нужно использовать DataStore[1], для адреса 1 -> DataStore[2] и т.д.
 
-            // ===== INT: регистры 0-1 (один INT на один регистр) =====
-            // Адреса Modbus 0-1 -> DataStore[1-2]
-            // Генерируем случайное целое число в диапазоне 0..1000
-            ushort intValue = (ushort)_random.Next(0, 1001);
-            _server.DataStore.HoldingRegisters[1] = intValue;
-            _server.DataStore.HoldingRegisters[2] = (ushort)_random.Next(0, 1001);
-
-            // ===== REAL: регистры 2-3 (32-бит floating point = 2 регистра) =====
-            // Адреса Modbus 2-3 -> DataStore[3-4]
-            // Генерируем случайное число с плавающей точкой
-            float realValue = (float)_random.NextDouble() * 100f; // 0.0 .. 100.0
-
-            // Преобразуем float в два ushort регистра (big-endian)
-            byte[] realBytes = BitConverter.GetBytes(realValue);
-            _server.DataStore.HoldingRegisters[3] = BitConverter.ToUInt16(realBytes, 0);
-            _server.DataStore.HoldingRegisters[4] = BitConverter.ToUInt16(realBytes, 2);
-
-            // ===== STRING: регистры 4-9 (6 символов = 3 регистра) =====
-            // Адреса Modbus 4-6 -> DataStore[5-7]
-            // Генерируем случайную строку из букв и цифр
-            string randomString = GenerateRandomString(6);
-            byte[] stringBytes = Encoding.ASCII.GetBytes(randomString);
-
-            // Заполняем регистры (каждый регистр = 2 байта = 2 символа)
-            for (int i = 0; i < 3 && i * 2 < stringBytes.Length; i++)
-            {
-                byte high = stringBytes[i * 2];
-                byte low = (i * 2 + 1 < stringBytes.Length) ? stringBytes[i * 2 + 1] : (byte)0;
-                _server.DataStore.HoldingRegisters[5 + i] = (ushort)((high << 8) | low);
-            }
+            // Клиент владеет Registers[0..9]. Сервер изменяет только Registers[10..19].
 
             // ===== DATE: регистры 10-11 (UNIX timestamp = 4 байта = 2 регистра) =====
             // Адреса Modbus 10-11 -> DataStore[11-12]
@@ -211,7 +188,7 @@ namespace Server
         /// <returns>Строка с текущим состоянием цикла Coils</returns>
         public string GetCoilsDebugInfo()
         {
-            return $"Coil Cycle: Index={_coilCycleIndex}, Phase={(_cyclePhase == 0 ? "ON" : "OFF")}";
+            return $"Coil Cycle: Index={_coilCycleIndex}, Phase={(_cyclePhase == 0 ? "ON" : "OFF")}, Ownership=CLIENT[0-4]/SERVER[5-9]";
         }
     }
 }
