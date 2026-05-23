@@ -1,66 +1,107 @@
-﻿using CP.IO.Ports;
+﻿using System;
+using System.Threading.Tasks;
+using CP.IO.Ports;
 using ModbusRx.Device;
 
 namespace Client
 {
+    /// <summary>
+    /// Консольный Modbus TCP клиент (Master).
+    /// 
+    /// Этот класс служит точкой входа в приложение клиента. Он отвечает за:
+    /// - Подключение к Modbus TCP серверу на 127.0.0.1:502
+    /// - Периодическое чтение данных (Coils и Holding Registers)
+    /// - Красивое отображение данных в консоли
+    /// - Обработку ошибок подключения
+    /// 
+    /// Основной цикл работы:
+    /// 1. Создаётся подключение к серверу 127.0.0.1:502
+    /// 2. Инициализируется ModbusClientDataReader для чтения данных
+    /// 3. Инициализируется ModbusDataDisplay для красивого вывода
+    /// 4. Бесконечный цикл читает данные каждые 500 мс и выводит их
+    /// 5. По нажатию клавиши клиент закрывает соединение и выходит
+    /// </summary>
     internal class Program
     {
         static async Task Main(string[] args)
         {
-            // Параметры сервера (IP и порт)
+            Console.WriteLine("=== Modbus TCP Client (Master) ===");
+            Console.WriteLine("Подключение к серверу на 127.0.0.1:502...\n");
+
+            // Параметры сервера (IP адрес и порт)
             string serverIp = "127.0.0.1";
             int serverPort = 502;
 
-            // Создаём TCP Client и Modbus Master
-            var tcpClient = new TcpClientRx(serverIp, serverPort);
-            using var master = ModbusIpMaster.CreateIp(tcpClient);
-
-            Console.WriteLine("Modbus TCP Client запущен...");
-            Console.WriteLine("Нажми Ctrl+C для выхода.");
-
-            while (true)
+            try
             {
-                try
+                // Создаём TCP клиент и Modbus Master
+                // TCP клиент отвечает за низкоуровневое соединение
+                var tcpClient = new TcpClientRx(serverIp, serverPort);
+
+                // ModbusIpMaster — высокоуровневый интерфейс для работы с Modbus TCP
+                using var master = ModbusIpMaster.CreateIp(tcpClient);
+
+                Console.WriteLine("✓ Подключено к серверу.");
+                Console.WriteLine("Нажми Ctrl+C для выхода.\n");
+
+                // Инициализируем класс для чтения данных Modbus
+                var dataReader = new ModbusClientDataReader(master, slaveAddress: 1);
+
+                // Инициализируем класс для красивого отображения данных
+                var display = new ModbusDataDisplay();
+
+                // Основной цикл чтения и отображения данных
+                // Не блокирует основной поток благодаря async/await
+                while (!Console.KeyAvailable)
                 {
-                    // 1) Чтение 10 Coil (булевых)
-                    bool[] coils = await master.ReadCoilsAsync(
-                        slaveAddress: 1, startAddress: 1, numberOfPoints: 10);
+                    try
+                    {
+                        // Читаем все данные (Coils и Registers) с сервера одновременно
+                        var (coils, registers) = await dataReader.ReadAllDataAsync();
 
-                    // 2) Чтение 10 Holding Registers
-                    ushort[] holdingRegs = await master.ReadHoldingRegistersAsync(
-                        slaveAddress: 1, startAddress: 1, numberOfPoints: 10);
+                        // Проверяем, что данные успешно прочитаны
+                        if (coils != null && registers != null)
+                        {
+                            // Обновляем отображение с типизированными данными
+                            // (INT, REAL, STRING, DATE, DWORD)
+                            display.UpdateWithTypes(coils, registers);
 
-                    Console.WriteLine($"Client Read: Coils 0..9 = {string.Join(",", coils)}");
-                    Console.WriteLine($"Client Read: HoldingRegs 0..9 = {string.Join(",", holdingRegs)}");
+                            // Выводим положительный статус
+                            display.WriteStatus("[✓] Данные обновлены | Waiting...");
+                        }
+                        else
+                        {
+                            display.WriteStatus("[!] Не удалось прочитать данные");
+                        }
+                    }
+                    catch (ModbusReadException ex)
+                    {
+                        // Специфичная ошибка Modbus (проблема с чтением)
+                        display.WriteStatus($"[ERROR] Modbus: {ex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        // Другие ошибки (проблема с соединением, таймаут и т.д.)
+                        display.WriteStatus($"[ERROR] {ex.GetType().Name}: {ex.Message}");
+                    }
 
-                    // 3) Запись булевых Coil — инвертировать каждое
-                    bool[] coilsToWrite = new bool[10];
-                    for (int i = 1; i < coils.Length; i++)
-                        coilsToWrite[i] = !coils[i];
-
-                    await master.WriteMultipleCoilsAsync(
-                        slaveAddress: 1, startAddress: 1, data: coilsToWrite);
-
-                    // 4) Запись Holding Registers — +10 к каждому
-                    ushort[] regsToWrite = new ushort[10];
-                    for (int i = 1; i < holdingRegs.Length; i++)
-                        regsToWrite[i] = (ushort)(holdingRegs[i] + 10);
-
-                    await master.WriteMultipleRegistersAsync(
-                        slaveAddress: 1, startAddress: 1, data: regsToWrite);
-
-                    Console.WriteLine("Client: записи выполнены.");
-
+                    // Небольшая задержка перед следующей итерацией
+                    // Не перегружаем сеть и процессор частыми запросами
+                    await Task.Delay(500);
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Ошибка Modbus: {ex.Message}");
-                }
 
-                // Задержка 1 сек
-                await Task.Delay(1000);
+                // Пользователь нажал клавишу — завершаем работу
+                Console.WriteLine("\n\nЗавершение клиента...");
             }
-
+            catch (Exception ex)
+            {
+                // Критическая ошибка на этапе инициализации (например, сервер не запущен)
+                Console.WriteLine($"[FATAL ERROR] Не удалось подключиться к серверу: {ex.Message}");
+                Console.WriteLine("\nУбедитесь, что:");
+                Console.WriteLine("1. Сервер запущен (Server.exe)");
+                Console.WriteLine("2. Сервер слушает на 127.0.0.1:502");
+                Console.WriteLine("3. Порт 502 не заблокирован брандмауэром");
+            }
         }
     }
 }
